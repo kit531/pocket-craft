@@ -8,23 +8,20 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.SeekBar
 import android.widget.TextView
-import java.util.Locale
-import kotlin.math.roundToInt
 
 /**
- * Pause menu overlay: Resume, render distance, look sensitivity, FOV, battery saver and a live debug line.
- * Values are saved and pushed to the engine by [GameSettings] as soon as they change.
+ * Pause menu overlay: Resume, Back to home, settings and a live debug line.
+ * Settings are saved and pushed to the engine by [GameSettings] as soon as they change.
  */
 class PauseMenuView(
     context: Context,
-    private val settings: GameSettings,
+    settings: GameSettings,
     onResumeGame: () -> Unit,
+    onBackHome: () -> Unit,
 ) : FrameLayout(context) {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -37,95 +34,43 @@ class PauseMenuView(
     }
 
     init {
-        val density = context.resources.displayMetrics.density
-        fun dpInt(v: Int): Int = (v * density).toInt()
-
         setBackgroundColor(Color.argb(200, 0, 0, 0))
         isClickable = true  // swallow touches so they do not reach the game
 
         val column = LinearLayout(context)
         column.orientation = LinearLayout.VERTICAL
-        column.setPadding(dpInt(24), dpInt(24), dpInt(24), dpInt(24))
+        column.setPadding(context.dp(24), context.dp(24), context.dp(24), context.dp(24))
 
-        fun addRow(view: View, topGapDp: Int = 12) {
+        fun addRow(view: View, topGapDp: Int) {
             column.addView(
                 view,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { topMargin = dpInt(topGapDp) },
+                ).apply { topMargin = context.dp(topGapDp) },
             )
         }
 
-        fun label(): TextView = TextView(context).apply {
+        val title = TextView(context).apply {
+            text = "Paused / מושהה"
             setTextColor(Color.WHITE)
-            textSize = 15f
-        }
-
-        val title = label().apply {
-            text = "Paused"
             textSize = 24f
+            setTypeface(null, Typeface.BOLD)
             gravity = Gravity.CENTER_HORIZONTAL
         }
         addRow(title, 0)
 
-        val resume = Button(context).apply {
-            text = "Resume"
+        addRow(Button(context).apply {
+            text = "Resume / המשך"
             setOnClickListener { onResumeGame() }
-        }
-        addRow(resume, 16)
+        }, 16)
 
-        // Render distance: slider 0..14 maps to 2..16 chunks.
-        val rdLabel = label()
-        val rdSeek = SeekBar(context)
-        rdSeek.max = GameSettings.MAX_RENDER_DISTANCE - GameSettings.MIN_RENDER_DISTANCE
-        rdSeek.progress = settings.renderDistance - GameSettings.MIN_RENDER_DISTANCE
-        rdLabel.text = renderDistanceText(settings.renderDistance)
-        rdSeek.onChange { progress ->
-            val v = progress + GameSettings.MIN_RENDER_DISTANCE
-            rdLabel.text = renderDistanceText(v)
-            settings.renderDistance = v
-        }
-        addRow(rdLabel, 20)
-        addRow(rdSeek, 4)
+        addRow(Button(context).apply {
+            text = "Back to home / חזרה למסך הבית"
+            setOnClickListener { onBackHome() }
+        }, 8)
 
-        // Look sensitivity: slider 0..100 maps linearly to 0.001..0.010 rad per pixel.
-        val sensLabel = label()
-        val sensSeek = SeekBar(context)
-        sensSeek.max = 100
-        sensSeek.progress = ((settings.lookSensitivity - GameSettings.MIN_LOOK_SENSITIVITY) /
-            (GameSettings.MAX_LOOK_SENSITIVITY - GameSettings.MIN_LOOK_SENSITIVITY) * 100f).roundToInt()
-        sensLabel.text = sensitivityText(settings.lookSensitivity)
-        sensSeek.onChange { progress ->
-            val v = GameSettings.MIN_LOOK_SENSITIVITY +
-                progress / 100f * (GameSettings.MAX_LOOK_SENSITIVITY - GameSettings.MIN_LOOK_SENSITIVITY)
-            sensLabel.text = sensitivityText(v)
-            settings.lookSensitivity = v
-        }
-        addRow(sensLabel, 20)
-        addRow(sensSeek, 4)
-
-        // Field of view: slider 0..60 maps to 50..110 degrees.
-        val fovLabel = label()
-        val fovSeek = SeekBar(context)
-        fovSeek.max = (GameSettings.MAX_FOV - GameSettings.MIN_FOV).toInt()
-        fovSeek.progress = (settings.fov - GameSettings.MIN_FOV).roundToInt()
-        fovLabel.text = fovText(settings.fov)
-        fovSeek.onChange { progress ->
-            val v = GameSettings.MIN_FOV + progress
-            fovLabel.text = fovText(v)
-            settings.fov = v
-        }
-        addRow(fovLabel, 20)
-        addRow(fovSeek, 4)
-
-        val saver = CheckBox(context).apply {
-            text = "Battery saver (30 FPS)"
-            setTextColor(Color.WHITE)
-            isChecked = settings.batterySaver
-            setOnCheckedChangeListener { _, checked -> settings.batterySaver = checked }
-        }
-        addRow(saver, 20)
+        addRow(SettingsPanel(context, settings, Color.WHITE, Color.LTGRAY), 20)
 
         debugText.setTextColor(Color.LTGRAY)
         debugText.textSize = 11f
@@ -135,7 +80,7 @@ class PauseMenuView(
         val scroll = ScrollView(context)
         scroll.addView(
             column,
-            FrameLayout.LayoutParams(dpInt(420), FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL),
+            FrameLayout.LayoutParams(context.dp(420), FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL),
         )
         addView(scroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         visibility = View.GONE
@@ -152,25 +97,6 @@ class PauseMenuView(
     fun close() {
         handler.removeCallbacks(refreshDebug)
         visibility = View.GONE
-    }
-
-    private fun renderDistanceText(v: Int): String = "Render distance: $v chunks"
-
-    private fun sensitivityText(v: Float): String =
-        String.format(Locale.US, "Look sensitivity: %.4f rad/px", v)
-
-    private fun fovText(v: Float): String = "Field of view: ${v.roundToInt()} deg"
-
-    private fun SeekBar.onChange(block: (Int) -> Unit) {
-        setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                block(progress)
-            }
-
-            override fun onStartTrackingTouch(bar: SeekBar?) {}
-
-            override fun onStopTrackingTouch(bar: SeekBar?) {}
-        })
     }
 
     private companion object {

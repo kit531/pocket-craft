@@ -8,10 +8,25 @@
 #include <string>
 
 #include "game.h"
+#include "blocks.h"
+#include "atlas.h"  // engine/render is an include dir for the platform target (see engine/CMakeLists.txt)
+
+#include <vector>
 
 namespace {
 std::unique_ptr<pc::Game> g_game;
 ANativeWindow* g_window = nullptr;
+
+// Level-0 RGBA8 atlas, built once. Needs no Game, so the home screen and the inventory can call it early.
+const std::vector<uint8_t>& atlasLevel0() {
+    static const std::vector<uint8_t> rgba = [] {
+        std::vector<uint8_t> all;
+        pc::buildAtlas(all);
+        all.resize(pc::atlasMipBytes(0));
+        return all;
+    }();
+    return rgba;
+}
 
 void releaseWindow() {
     if (g_window) {
@@ -92,4 +107,46 @@ JNI_FN(jstring, nativeGetDebugInfo)(JNIEnv* env, jclass) {
     if (!g_game) return env->NewStringUTF("");
     const std::string info = g_game->debugInfo();  // copy: must outlive the NewStringUTF call
     return env->NewStringUTF(info.c_str());
+}
+
+
+JNI_FN(void, nativeSetHotbarSlot)(JNIEnv*, jclass, jint slot, jint blockId) {
+    if (!g_game || slot < 0 || slot >= 9) return;
+    if (blockId < 0 || blockId >= pc::BLOCK_COUNT || !pc::isPlaceable(static_cast<uint8_t>(blockId))) return;
+    g_game->setHotbarSlot(slot, blockId);
+}
+
+JNI_FN(jint, nativeGetHotbarSlot)(JNIEnv*, jclass, jint slot) {
+    if (slot < 0 || slot >= 9) return pc::AIR;
+    if (!g_game) return pc::kHotbarBlocks[slot];  // before nativeOnCreate: the engine default
+    return g_game->getHotbarSlot(slot);
+}
+
+JNI_FN(jintArray, nativeGetPlaceableBlocks)(JNIEnv* env, jclass) {
+    std::vector<jint> ids;
+    for (int id = 1; id < pc::BLOCK_COUNT; ++id) {
+        if (pc::isPlaceable(static_cast<uint8_t>(id))) ids.push_back(id);
+    }
+    const jsize n = static_cast<jsize>(ids.size());
+    jintArray arr = env->NewIntArray(n);
+    if (arr && n > 0) env->SetIntArrayRegion(arr, 0, n, ids.data());
+    return arr;
+}
+
+JNI_FN(jstring, nativeGetBlockName)(JNIEnv* env, jclass, jint id) {
+    if (id < 0 || id >= pc::BLOCK_COUNT) return env->NewStringUTF("");
+    return env->NewStringUTF(pc::kBlockInfo[id].name);
+}
+
+JNI_FN(jint, nativeGetBlockIconTile)(JNIEnv*, jclass, jint id) {
+    if (id < 0 || id >= pc::BLOCK_COUNT) return 0;
+    return pc::kBlockInfo[id].tileSide;
+}
+
+JNI_FN(jbyteArray, nativeGetAtlasRGBA)(JNIEnv* env, jclass) {
+    const std::vector<uint8_t>& px = atlasLevel0();
+    const jsize n = static_cast<jsize>(px.size());
+    jbyteArray arr = env->NewByteArray(n);
+    if (arr) env->SetByteArrayRegion(arr, 0, n, reinterpret_cast<const jbyte*>(px.data()));
+    return arr;
 }

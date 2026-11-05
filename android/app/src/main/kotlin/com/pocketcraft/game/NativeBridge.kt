@@ -22,4 +22,13 @@ object NativeBridge {
     )
     @JvmStatic external fun nativeSetSetting(key: Int, value: Float)
     @JvmStatic external fun nativeGetDebugInfo(): String
+
+    // Block / hotbar / atlas access. The getters work before nativeOnCreate (no Game needed).
+    @JvmStatic external fun nativeSetHotbarSlot(slot: Int, blockId: Int)
+    @JvmStatic external fun nativeGetHotbarSlot(slot: Int): Int
+    @JvmStatic external fun nativeGetPlaceableBlocks(): IntArray
+    @JvmStatic external fun nativeGetBlockName(id: Int): String
+    @JvmStatic external fun nativeGetBlockIconTile(id: Int): Int
+    /** Level-0 atlas, 256x256 RGBA8, 262144 bytes. */
+    @JvmStatic external fun nativeGetAtlasRGBA(): ByteArray
 }
