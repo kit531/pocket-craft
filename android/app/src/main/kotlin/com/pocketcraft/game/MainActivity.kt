@@ -1,8 +1,10 @@
 package com.pocketcraft.game
 
 import android.app.Activity
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -10,6 +12,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.TextView
 
 /**
  * Fullscreen landscape game activity. The SurfaceView is the game; touch controls and the pause
@@ -21,6 +24,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var pauseMenu: PauseMenuView
     private var menuOpen = false
 
+    /** True once nativeOnCreate ran. Native lifecycle calls and the views are used only after this. */
+    private var gameStarted = false
+
+    /** Whether the Activity is between onResume and onPause. Read when the game starts. */
+    private var resumed = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -30,7 +39,32 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             window.attributes = lp
         }
 
+        if (LegacyDataCleaner.isDone(this)) {
+            startGame()
+        } else {
+            // First start after the update: delete the old launcher's data off the UI thread, then start.
+            setContentView(TextView(this).apply {
+                text = PREPARING_TEXT
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.BLACK)
+                textSize = 18f
+            })
+            Thread {
+                LegacyDataCleaner.cleanIfNeeded(applicationContext)
+                runOnUiThread {
+                    if (!isDestroyed && !isFinishing) startGame()
+                }
+            }.start()
+        }
+    }
+
+    /** Creates the engine and the game views. Runs on the UI thread, after the cleanup. */
+    private fun startGame() {
         NativeBridge.nativeOnCreate(filesDir.absolutePath, WORLD_NAME, WORLD_SEED)
+        gameStarted = true
+        if (resumed) NativeBridge.nativeOnResume()
+
         settings = GameSettings(this)
         settings.applyToNative()
 
@@ -51,20 +85,24 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         hideSystemBars()
         updateKeepScreenOn()
-        NativeBridge.nativeOnResume()
+        if (gameStarted) NativeBridge.nativeOnResume()
     }
 
     override fun onPause() {
-        controls.releaseAll()
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        NativeBridge.nativeOnPause()
+        resumed = false
+        if (gameStarted) {
+            controls.releaseAll()
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            NativeBridge.nativeOnPause()
+        }
         super.onPause()
     }
 
     override fun onDestroy() {
-        NativeBridge.nativeOnDestroy()
+        if (gameStarted) NativeBridge.nativeOnDestroy()
         super.onDestroy()
     }
 
@@ -76,6 +114,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     /** Back opens the pause menu; back again closes it. */
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
+        if (!gameStarted) {
+            super.onBackPressed()
+            return
+        }
         if (menuOpen) closePauseMenu() else openPauseMenu()
     }
 
@@ -145,5 +187,6 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     companion object {
         private const val WORLD_NAME = "world1"
         private const val WORLD_SEED = 12345L
+        private const val PREPARING_TEXT = "מכין את המשחק...\nPreparing..."
     }
 }
