@@ -28,7 +28,6 @@ struct FrameParams {
     const ParticleInstance* particles = nullptr;  // valid only during render()
     uint32_t particleCount = 0;                   // at most kMaxParticles
     float fogStart = 64.0f, fogEnd = 120.0f;  // blocks
-    float timeSeconds = 0.0f;                  // for water animation
     bool hasSelection = false;
     Vec3i selectedBlock;                       // draw an outline around this block when hasSelection
 };

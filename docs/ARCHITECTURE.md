@@ -74,5 +74,12 @@ nativeSetInput(moveX: Float, moveZ: Float, lookDx: Float, lookDy: Float, jump: B
                breakPressed: Boolean, placePressed: Boolean, flyToggle: Boolean, hotbarSlot: Int)
 nativeSetSetting(key: Int, value: Float)
 nativeGetDebugInfo(): String
+nativeSetHotbarSlot(slot: Int, blockId: Int)   -> Game::setHotbarSlot (ignores invalid slot or non-placeable id)
+nativeGetHotbarSlot(slot: Int): Int            -> Game::getHotbarSlot (0 for invalid slot)
+nativeGetPlaceableBlocks(): IntArray           -> ids with isPlaceable(id) (blocks.h), ascending
+nativeGetBlockName(id: Int): String            -> kBlockInfo[id].name
+nativeGetBlockIconTile(id: Int): Int           -> kBlockInfo[id].tileSide
+nativeGetAtlasRGBA(): ByteArray                -> level-0 256x256 RGBA (262144 bytes) of buildAtlas() (render/atlas.h)
 ```
+Hotbar: Game keeps 9 configurable slots (default `kHotbarBlocks`), saved in the world.dat blob as `H b0,..,b8` next to `P x y z yaw pitch` (a blob without `H` uses defaults). Placing uses the block of `InputState.hotbarSlot`. Holding breakPressed/placePressed repeats the action every 0.25 s. Break particles (fixed pool of `kMaxParticles`, 60 Hz update) and camera view bobbing live in engine/game; `FrameParams.timeSeconds` wraps at 3600.
 C++ names: `Java_com_pocketcraft_game_NativeBridge_<fn>(JNIEnv*, jclass, ...)`. Call order from the Activity: nativeOnCreate (Activity.onCreate), surface callbacks, nativeOnResume/Pause, nativeOnDestroy. The bridge owns the `ANativeWindow*` and releases it after `onSurfaceDestroyed`. Saves: per chunk column file under `<filesDir>/worlds/<name>/`, only modified columns, written on pause/destroy and when modified columns unload.

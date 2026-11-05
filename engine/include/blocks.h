@@ -49,6 +49,9 @@ inline uint8_t tileForFace(uint8_t id, int face) {
     return face == FACE_PY ? b.tileTop : (face == FACE_NY ? b.tileBottom : b.tileSide);
 }
 
+// Blocks the player may hold and place: everything except air, water and bedrock.
+inline bool isPlaceable(uint8_t id) { return id > AIR && id < BLOCK_COUNT && id != WATER && id != BEDROCK; }
+
 // Block placed by each hotbar slot (the Kotlin UI shows 9 slots in this order).
 inline constexpr uint8_t kHotbarBlocks[9] = {GRASS, DIRT, STONE, COBBLE, PLANKS, LOG, SAND, GLASS, LEAVES};
 
