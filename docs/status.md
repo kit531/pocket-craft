@@ -53,6 +53,7 @@ Known gaps / notes:
 - Pause menu does not stop the game thread. It only sends neutral input and hides the controls.
 - Open for the architect: a Sneak button was added beyond the spec, because fly-descend needs sneak. Engine setting for battery saver would be needed for that checkbox.
 - Not compiled: Kotlin has not been compiled. Bot 5 should run the Android build first.
+- Legacy cleanup (`LegacyDataCleaner.kt`): first start after the update deletes the old launcher's private data (filesDir, caches, external app dirs, shared_prefs except `pocketcraft_settings`, databases) on a background thread behind a "Preparing..." screen, logs bytes freed, then writes `filesDir/.pocketcraft_initialized`; never runs again.
 
 ## Bot 5 - build/test
 **APK in CI** (`.github/workflows/build-apk.yml`): every push runs `host-tests` (engine + tests on the host with ctest), then `apk` (fetch shared keystore, `./gradlew assembleRelease`, `PC_VERSION_CODE` = run number, verify package/versionCode/signature). The APK is the workflow artifact `pocket-craft-apk`, file `pocket-craft-0.1.<run_number>.apk`. Pushes to `main` also publish GitHub Release `build-<run_number>` (marked latest) with the APK attached.
