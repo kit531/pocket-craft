@@ -3,7 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// CI sets PC_VERSION_CODE to github.run_number so every build is newer than the last one.
+// CI sets PC_VERSION_CODE to github.run_number. The package is the existing "Pocket Client" launcher's
+// (com.movtery.zalithlauncher) so this APK installs as an update over it, which needs a higher versionCode:
+// the launcher's own codes are 300000 + its run number, so ours is offset by 1000000.
 val pcVersionCode: Int = System.getenv("PC_VERSION_CODE")?.trim()?.toIntOrNull() ?: 1
 
 android {
@@ -11,22 +13,23 @@ android {
     compileSdk = 35
     ndkVersion = "27.2.12479018"
 
-    // One fixed key for every build (debug and release), so each new APK installs as an update over an old one.
-    // The keystore is committed on purpose: it is a test key, not a store upload key.
+    // Same key as the Pocket Client launcher, which Android requires for an update to install over it.
+    // It is the public debug key from ZalithLauncher at a pinned commit; CI copies it in before the build
+    // (see .github/workflows/build-apk.yml) and it is never committed here (*.keystore is git-ignored).
     signingConfigs {
-        create("pocketcraft") {
-            storeFile = file("pocketcraft-debug.keystore")
-            storePassword = "pocketcraft"
-            keyAlias = "pocketcraft"
-            keyPassword = "pocketcraft"
+        create("zalith") {
+            storeFile = file("zalith-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
     defaultConfig {
-        applicationId = "com.pocketcraft.game"
+        applicationId = "com.movtery.zalithlauncher"
         minSdk = 26
         targetSdk = 35
-        versionCode = pcVersionCode
+        versionCode = 1000000 + pcVersionCode
         versionName = "0.1.$pcVersionCode"
         ndk {
             abiFilters += "arm64-v8a"
@@ -51,12 +54,12 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("pocketcraft")
+            signingConfig = signingConfigs.getByName("zalith")
         }
         release {
             isMinifyEnabled = false
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("pocketcraft")
+            signingConfig = signingConfigs.getByName("zalith")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

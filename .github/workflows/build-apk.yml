@@ -68,6 +68,20 @@ jobs:
           install "cmake;3.22.1" "cmake/3.22.1"
           install "ndk;27.2.12479018" "ndk/27.2.12479018"
 
+      # Pocket Craft uses the same package name and signing key as the Pocket Client launcher, so an APK from
+      # here installs as an update over it. The key is the public debug key of ZalithLauncher at a pinned commit.
+      - name: Fetch shared signing key
+        uses: actions/checkout@v4
+        with:
+          repository: ZalithLauncher/ZalithLauncher
+          ref: ed8a5c873b25f19d08aef5bdfc1084fd9aff836c
+          path: zl1
+          sparse-checkout: ZalithLauncher/debug.keystore
+          sparse-checkout-cone-mode: false
+
+      - name: Copy shared signing key into the app module
+        run: cp zl1/ZalithLauncher/debug.keystore android/app/zalith-debug.keystore
+
       - name: Build release APK
         working-directory: android
         run: ./gradlew assembleRelease --stacktrace
@@ -78,6 +92,49 @@ jobs:
           mkdir -p apk-out
           cp android/app/build/outputs/apk/release/app-release.apk "apk-out/pocket-craft-0.1.${GITHUB_RUN_NUMBER}.apk"
           ls -l apk-out
+
+      # Fails the job unless the APK has the launcher's package name, the expected versionCode (1000000 + run
+      # number, above the launcher's own 300000 + run number) and the signing certificate of the shared key.
+      - name: Verify package, versionCode and signature
+        run: |
+          set -euo pipefail
+          APK="apk-out/pocket-craft-0.1.${GITHUB_RUN_NUMBER}.apk"
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)"
+          BT="${BT%/}"
+          echo "Using build-tools in $BT"
+
+          # SHA-256 of the certificate in the keystore, lower-case hex without colons.
+          KEYTOOL_OUT="$(keytool -list -v -keystore android/app/zalith-debug.keystore -storepass android -alias androiddebugkey)"
+          KS_SHA="$(grep -m1 'SHA256:' <<<"$KEYTOOL_OUT" | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')"
+          if [ -z "$KS_SHA" ]; then
+            echo "::error::Could not read the SHA-256 of the shared keystore"
+            exit 1
+          fi
+
+          # SHA-256 digest of the signer certificate of the APK (apksigner also fails here if the APK is unsigned).
+          APK_SIGN="$("$BT/apksigner" verify --print-certs "$APK")"
+          APK_SHA="$(grep -m1 'certificate SHA-256 digest' <<<"$APK_SIGN" | awk '{print $NF}' | tr 'A-F' 'a-f')"
+          echo "Keystore SHA-256: $KS_SHA"
+          echo "APK signer SHA-256: $APK_SHA"
+          if [ "$APK_SHA" != "$KS_SHA" ]; then
+            echo "::error::APK is signed with a different certificate than the shared key; it would not install over Pocket Client"
+            exit 1
+          fi
+
+          BADGING="$("$BT/aapt2" dump badging "$APK")"
+          PARSED="$(sed -n "s/^package: name='\([^']*\)' versionCode='\([0-9]*\)'.*/\1 \2/p" <<<"$BADGING")"
+          PKG="${PARSED% *}"
+          VC="${PARSED##* }"
+          echo "Package: $PKG"
+          echo "versionCode: $VC"
+          if [ "$PKG" != "com.movtery.zalithlauncher" ]; then
+            echo "::error::Package is '$PKG', expected com.movtery.zalithlauncher"
+            exit 1
+          fi
+          if [ "$VC" != "$((1000000 + GITHUB_RUN_NUMBER))" ]; then
+            echo "::error::versionCode is $VC, expected $((1000000 + GITHUB_RUN_NUMBER))"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
