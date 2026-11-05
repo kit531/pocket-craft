@@ -37,38 +37,42 @@ Rgba scale(Rgba c, float k) { return {c.r * k, c.g * k, c.b * k, c.a}; }
 Rgba mix(Rgba a, Rgba b, float t) {
     return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t};
 }
-
-Rgba grassTop(int x, int y) {
-    float n = 0.55f * vnoise(float(x), float(y), 4, 11) + 0.45f * rnd(x, y, 12);
-    Rgba c = scale(rgb(84, 152, 48), 0.72f + 0.55f * n);
-    float s = rnd(x, y, 13);
-    if (s > 0.93f) c = mix(c, rgb(150, 196, 70), 0.6f);
-    else if (s < 0.06f) c = scale(c, 0.72f);
-    return c;
+// Picks one of n palette entries by a 0..1 value: every tile uses only a handful of flat shades (calm, readable at 16 px).
+template <size_t N>
+Rgba pick(const Rgba (&pal)[N], float v) {
+    int i = int(v * float(N));
+    return pal[std::clamp(i, 0, int(N) - 1)];
 }
+// Soft, low amplitude field in 0..1 (mostly mid values) built from smooth noise plus a little per-pixel grain.
+float field(int x, int y, int seed, float grain = 0.25f) {
+    float n = 0.6f * vnoise(float(x), float(y), 4, seed) + 0.4f * vnoise(float(x), float(y), 8, seed + 1);
+    return (1.0f - grain) * n + grain * rnd(x, y, seed + 2);
+}
+
+const Rgba kGrass[4] = {rgb(84, 122, 62), rgb(94, 134, 68), rgb(104, 144, 74), rgb(116, 154, 82)};
+const Rgba kDirt[4] = {rgb(108, 82, 58), rgb(120, 92, 64), rgb(130, 100, 70), rgb(140, 108, 78)};
+
+Rgba grassTop(int x, int y) { return pick(kGrass, std::clamp((field(x, y, 11) - 0.2f) * 1.6f, 0.0f, 0.999f)); }
 Rgba dirt(int x, int y) {
-    float n = 0.5f * vnoise(float(x), float(y), 4, 21) + 0.5f * rnd(x, y, 22);
-    Rgba c = scale(rgb(121, 85, 57), 0.78f + 0.4f * n);
-    float s = rnd(x, y, 23);
-    if (s < 0.10f) c = mix(c, rgb(84, 56, 38), 0.7f);
-    else if (s > 0.94f) c = mix(c, rgb(160, 120, 86), 0.7f);
-    return c;
+    float v = field(x, y, 21);
+    if (rnd(x, y, 23) > 0.94f) return rgb(94, 70, 50);  // a few dark pebbles
+    return pick(kDirt, std::clamp((v - 0.2f) * 1.6f, 0.0f, 0.999f));
 }
 Rgba grassSide(int x, int y) {
-    int depth = 3 + int(rnd(x, 0, 31) * 3.0f);  // ragged fringe 3..5 rows
+    int depth = 3 + int(rnd(x / 2, 0, 31) * 2.99f);  // fringe of 3..5 rows, ragged in 2 px steps
     if (y < depth) {
         Rgba c = grassTop(x, y + 5);
-        if (y == depth - 1) c = scale(c, 0.82f);
+        if (y == depth - 1) c = rgb(74, 108, 54);     // shadowed lower edge of the fringe
         return c;
     }
+    if (y == depth) return rgb(100, 76, 54);          // soft shadow just below the grass
     return dirt(x, y);
 }
 Rgba stone(int x, int y) {
-    float n = 0.45f * vnoise(float(x), float(y), 4, 41) + 0.25f * vnoise(float(x), float(y), 8, 42) + 0.3f * rnd(x, y, 43);
-    Rgba c = scale(rgb(127, 129, 135), 0.74f + 0.5f * n);
-    // a few hair cracks
-    if (rnd(x / 2, y, 44) > 0.93f && rnd(x, y / 3, 45) > 0.55f) c = scale(c, 0.78f);
-    return c;
+    const Rgba pal[4] = {rgb(118, 120, 124), rgb(126, 128, 131), rgb(134, 136, 139), rgb(142, 144, 146)};
+    float v = field(x, y, 41, 0.3f);
+    if (rnd(x, y, 44) > 0.95f) return rgb(108, 110, 115);  // sparse darker speckle
+    return pick(pal, std::clamp((v - 0.2f) * 1.6f, 0.0f, 0.999f));
 }
 Rgba cobble(int x, int y) {
     // Cellular pattern on a 4x4 jittered grid, wrapped so the tile repeats.
@@ -82,77 +86,70 @@ Rgba cobble(int x, int y) {
             if (d < f1) { f2 = f1; f1 = d; id = wy * 4 + wx; }
             else if (d < f2) f2 = d;
         }
-    if (f2 - f1 < 0.95f) return rgb(72, 72, 78);  // mortar
-    float tone = 0.72f + 0.38f * rnd(id, 7, 53);
-    Rgba c = scale(rgb(132, 132, 136), tone * (1.08f - 0.08f * f1));
-    c = scale(c, 0.93f + 0.14f * rnd(x, y, 54));
+    if (f2 - f1 < 0.95f) return rgb(86, 88, 92);  // mortar
+    const Rgba pal[3] = {rgb(122, 124, 128), rgb(134, 136, 139), rgb(146, 148, 150)};
+    Rgba c = pick(pal, rnd(id, 7, 53));
+    if (f2 - f1 < 1.9f) c = scale(c, 0.92f);      // rounded, slightly darker rim
     return c;
 }
 Rgba sand(int x, int y) {
-    Rgba c = scale(rgb(222, 208, 152), 0.9f + 0.14f * rnd(x, y, 61));
-    float s = rnd(x, y, 62);
-    if (s < 0.07f) c = mix(c, rgb(190, 170, 118), 0.7f);
-    else if (s > 0.95f) c = mix(c, rgb(246, 236, 190), 0.7f);
-    return c;
+    const Rgba pal[4] = {rgb(206, 194, 150), rgb(214, 202, 158), rgb(222, 210, 168), rgb(228, 217, 178)};
+    if (rnd(x, y, 62) > 0.95f) return rgb(196, 183, 140);
+    return pick(pal, std::clamp((field(x, y, 61, 0.4f) - 0.2f) * 1.6f, 0.0f, 0.999f));
 }
 Rgba water(int x, int y) {
     const float tp = 6.2831853f / 16.0f;
-    float w = 0.5f * std::sin((x * 1 + y * 2) * tp) + 0.35f * std::sin((x * 2 - y * 1) * tp + 1.3f) + 0.15f * (rnd(x, y, 71) - 0.5f) * 2;
-    Rgba c = mix(rgb(34, 86, 196), rgb(96, 156, 235), std::clamp(w * 0.5f + 0.35f, 0.0f, 1.0f));
-    c.a = 168 + 26 * w;
-    return c;
+    float w = 0.55f * std::sin((x + y * 2) * tp) + 0.45f * std::sin((x * 2 - y) * tp + 1.3f);  // tiles seamlessly
+    const Rgba pal[3] = {rgb(46, 94, 150, 176), rgb(56, 108, 164, 168), rgb(78, 134, 186, 160)};
+    return pick(pal, std::clamp(w * 0.35f + 0.5f, 0.0f, 0.999f));
 }
 Rgba logTop(int x, int y) {
     float dx = std::fabs(x - 7.5f), dy = std::fabs(y - 7.5f);
     float d = std::max(dx, dy);
-    if (d > 6.6f) return scale(rgb(98, 72, 44), 0.85f + 0.3f * rnd(x, y, 81));
+    if (d > 6.6f) return rgb(96, 72, 50);  // bark rim
     int ring = int(d);
-    Rgba c = (ring % 2 == 0) ? rgb(190, 152, 96) : rgb(165, 126, 76);
-    if (ring == 0) c = rgb(142, 104, 60);
-    return scale(c, 0.93f + 0.14f * rnd(x, y, 82));
+    if (ring == 0) return rgb(138, 104, 70);
+    return (ring % 2 == 0) ? rgb(176, 144, 100) : rgb(160, 128, 88);
 }
 Rgba logSide(int x, int y) {
-    float col = 0.78f + 0.3f * rnd(x, 0, 91);
-    float streak = 0.92f + 0.16f * rnd(x, y / 5, 92);
-    Rgba c = scale(rgb(104, 78, 48), col * streak * (0.94f + 0.12f * rnd(x, y, 93)));
-    if (rnd(x / 2, y / 3, 94) > 0.93f) c = scale(c, 0.68f);  // knots
+    const Rgba pal[3] = {rgb(92, 70, 48), rgb(104, 80, 56), rgb(116, 90, 64)};
+    float col = rnd(x, 0, 91);
+    if (x % 4 == 1) return rgb(72, 54, 38);            // vertical bark grooves
+    Rgba c = pick(pal, col);
+    if (rnd(x, y / 4, 92) > 0.85f) c = pal[0];         // short darker streaks
     return c;
 }
 Rgba leaves(int x, int y) {
-    float h = rnd(x, y, 101);
-    if (h < 0.20f) return {0, 0, 0, 0};  // see-through holes
-    float v = rnd(x, y, 102);
-    Rgba c = scale(rgb(62, 132, 42), 0.62f + 0.6f * v);
-    if (rnd(x, y, 103) > 0.9f) c = mix(c, rgb(120, 186, 70), 0.55f);
-    // darken texels next to a hole so clumps read as depth
-    if (rnd(x + 1, y, 101) < 0.20f || rnd(x, y + 1, 101) < 0.20f) c = scale(c, 0.78f);
+    const Rgba pal[3] = {rgb(48, 92, 46), rgb(60, 110, 54), rgb(74, 126, 62)};
+    if (rnd(x, y, 101) < 0.10f) return {0, 0, 0, 0};  // see-through holes
+    float v = 0.7f * vnoise(float(x), float(y), 4, 102) + 0.3f * rnd(x, y, 103);
+    Rgba c = pick(pal, std::clamp((v - 0.15f) * 1.5f, 0.0f, 0.999f));
+    if (rnd(x + 1, y, 101) < 0.10f || rnd(x, y + 1, 101) < 0.10f) c = pal[0];  // darker next to holes: reads as depth
     return c;
 }
 Rgba planks(int x, int y) {
     int b = y / 4, r = y % 4;
-    float tone = 0.9f + 0.2f * rnd(b, 0, 111);
-    Rgba c = scale(rgb(178, 138, 84), tone);
-    c = scale(c, 0.93f + 0.1f * rnd(x / 4, b, 112));          // grain streaks along the board
-    if (rnd(x, y, 113) > 0.85f) c = scale(c, 0.93f);
-    if (r == 3) return rgb(104, 74, 42);                      // seam between boards
+    const Rgba pal[3] = {rgb(168, 134, 90), rgb(176, 142, 96), rgb(184, 150, 104)};
+    if (r == 3) return rgb(126, 96, 62);               // seam between boards
     int joint = (b % 2 == 0) ? 5 : 12;
-    if (x == joint) return rgb(112, 80, 46);
-    if (r == 0) c = scale(c, 1.06f);
+    if (x == joint) return rgb(134, 102, 66);
+    Rgba c = pick(pal, rnd(b, 0, 111));
+    if (r == 0) c = scale(c, 1.05f);
+    if (rnd(x / 3, y, 113) > 0.92f) c = scale(c, 0.93f);  // faint grain
     return c;
 }
 Rgba glass(int x, int y) {
     int e = std::min(std::min(x, 15 - x), std::min(y, 15 - y));
-    if (e == 0) return rgb(214, 238, 248, 225);               // frame
-    if (e == 1) return rgb(190, 224, 240, 70);
+    if (e == 0) return rgb(206, 226, 232, 225);        // thin light frame
+    if (e == 1) return rgb(196, 220, 230, 50);
     int d = (x + y) % 16;
-    if (x > 2 && x < 13 && y > 2 && y < 13 && (d == 5 || d == 6)) return rgb(255, 255, 255, 120);  // glint
-    return rgb(200, 232, 245, 26);
+    if (x > 2 && x < 13 && y > 2 && y < 13 && (d == 7 || d == 8) && ((x + y) % 5 != 0)) return rgb(255, 255, 255, 70);  // faint glint
+    return rgb(206, 228, 236, 22);
 }
 Rgba bedrock(int x, int y) {
-    float v = 0.6f * rnd(x / 2, y / 2, 121) + 0.4f * rnd(x, y, 122);
-    if (v < 0.3f) return rgb(26, 26, 30);
-    if (v < 0.62f) return scale(rgb(58, 58, 64), 0.9f + 0.2f * rnd(x, y, 123));
-    return scale(rgb(94, 94, 102), 0.9f + 0.2f * rnd(x, y, 124));
+    const Rgba pal[4] = {rgb(34, 34, 38), rgb(46, 46, 51), rgb(60, 60, 65), rgb(74, 74, 79)};
+    float v = 0.65f * rnd(x / 2, y / 2, 121) + 0.35f * rnd(x, y, 122);
+    return pick(pal, v);
 }
 Rgba missing(int x, int y) { return ((x / 4 + y / 4) & 1) ? rgb(255, 0, 255) : rgb(20, 20, 20); }
 
