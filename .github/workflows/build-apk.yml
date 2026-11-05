@@ -1,0 +1,111 @@
+name: build-apk
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure host build
+        run: cmake -S engine -B build/host -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build engine and tests
+        run: cmake --build build/host --parallel
+
+      - name: Run host tests
+        run: ctest --test-dir build/host/tests --output-on-failure
+
+  apk:
+    needs: host-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PC_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # The runner has the Android SDK preinstalled at ANDROID_HOME. Accept licences, then make sure the exact
+      # NDK and CMake versions from android/app/build.gradle.kts are installed (no-op if already present).
+      - name: Install NDK and CMake
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          (yes || true) | "$SDKMANAGER" --licenses > /dev/null
+          # Install one package at a time and retry: the NDK zip download is
+          # sometimes cut off ("Error on ZipFile unknown archive").
+          install() {
+            local pkg="$1" dir="$2"
+            for attempt in 1 2 3; do
+              if [ -f "$ANDROID_HOME/$dir/source.properties" ]; then return 0; fi
+              rm -rf "$ANDROID_HOME/$dir"
+              "$SDKMANAGER" --install "$pkg" || true
+              if [ -f "$ANDROID_HOME/$dir/source.properties" ]; then return 0; fi
+              echo "Install of $pkg failed (attempt $attempt), retrying"
+              sleep $((attempt * 10))
+            done
+            echo "::error::Could not install $pkg"
+            return 1
+          }
+          install "cmake;3.22.1" "cmake/3.22.1"
+          install "ndk;27.2.12479018" "ndk/27.2.12479018"
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Rename APK
+        run: |
+          set -euo pipefail
+          mkdir -p apk-out
+          cp android/app/build/outputs/apk/release/app-release.apk "apk-out/pocket-craft-0.1.${GITHUB_RUN_NUMBER}.apk"
+          ls -l apk-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocket-craft-apk
+          path: apk-out/pocket-craft-0.1.${{ github.run_number }}.apk
+          if-no-files-found: error
+
+  release:
+    needs: apk
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pocket-craft-apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Pocket Craft 0.1.${{ github.run_number }}
+          body: |
+            גרסה לבדיקה. להתקנה: להוריד את קובץ ה-APK ולפתוח אותו בטלפון.
+          files: pocket-craft-0.1.${{ github.run_number }}.apk
+          fail_on_unmatched_files: true
+          make_latest: true

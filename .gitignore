@@ -1,0 +1,19 @@
+# build outputs
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+.cxx/
+.gradle/
+.idea/
+*.iml
+local.properties
+android/**/build/
+captures/
+*.apk
+*.aab
+*.jks
+*.keystore
+!android/app/pocketcraft-debug.keystore
+*.spv
