@@ -31,7 +31,10 @@ class ControlsView(context: Context) : View(context) {
     /** Called on touch-down of the menu button. */
     var onMenuPressed: (() -> Unit)? = null
 
-    private enum class Btn { JUMP, SNEAK, BREAK, PLACE, FLY, MENU }
+    /** Called on touch-down of the bag (inventory) button. */
+    var onBagPressed: (() -> Unit)? = null
+
+    private enum class Btn { JUMP, SNEAK, BREAK, PLACE, FLY, BAG, MENU }
 
     private class CircleButton(val kind: Btn, val label: String, val radiusDp: Float) {
         var cx = 0f
@@ -84,24 +87,38 @@ class ControlsView(context: Context) : View(context) {
         CircleButton(Btn.PLACE, "PLACE", 28f),
         CircleButton(Btn.FLY, "FLY", 24f),
         CircleButton(Btn.SNEAK, "SNEAK", 24f),
+        CircleButton(Btn.BAG, "BAG", 22f),
         CircleButton(Btn.MENU, "MENU", 20f),
     )
 
-    private val slotColors = intArrayOf(
-        Color.rgb(93, 170, 58),   // grass
-        Color.rgb(139, 90, 43),   // dirt
-        Color.rgb(138, 138, 138), // stone
-        Color.rgb(95, 95, 95),    // cobble
-        Color.rgb(193, 154, 91),  // planks
-        Color.rgb(107, 74, 36),   // log
-        Color.rgb(227, 211, 154), // sand
-        Color.rgb(184, 228, 240), // glass
-        Color.rgb(47, 107, 42),   // leaves
-    )
+    /** Block in each hotbar slot, read from the engine (it may differ from the default after inventory use). */
+    private val slotBlocks = IntArray(9) { NativeBridge.nativeGetHotbarSlot(it) }
     private val slotRects = Array(9) { RectF() }
+    private val iconRect = RectF()
     private val hotbarBand = RectF()
     private var hotbarStep = 0f
     private var selectedSlot = 0
+
+    /** The hotbar slot the player is using now. */
+    val selectedHotbarSlot: Int
+        get() = selectedSlot
+
+    /** Copy of the 9 hotbar blocks, in slot order. */
+    fun slotBlockIds(): IntArray = slotBlocks.copyOf()
+
+    /** Updates one hotbar slot's block (inventory choice). */
+    fun setSlot(slot: Int, blockId: Int) {
+        if (slot !in 0..8) return
+        slotBlocks[slot] = blockId
+        invalidate()
+    }
+
+    /** Selects a hotbar slot; the next input snapshot sends it to the engine. */
+    fun selectSlot(slot: Int) {
+        if (slot !in 0..8) return
+        selectedSlot = slot
+        invalidate()
+    }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -184,6 +201,7 @@ class ControlsView(context: Context) : View(context) {
                 Btn.PLACE -> Pair(w - dp(72f), h - dp(160f))
                 Btn.FLY -> Pair(w - dp(160f), h - dp(160f))
                 Btn.SNEAK -> Pair(w - dp(72f), h - dp(248f))
+                Btn.BAG -> Pair(w - dp(88f), dp(32f))
                 Btn.MENU -> Pair(w - dp(32f), dp(32f))
             }
             b.cx = pos.first
@@ -216,9 +234,11 @@ class ControlsView(context: Context) : View(context) {
         canvas.drawRoundRect(hotbarBand, dp(10f), dp(10f), fillPaint)
         for (i in 0 until 9) {
             val r = slotRects[i]
-            fillPaint.color = slotColors[i]
-            fillPaint.alpha = 230
+            fillPaint.color = Color.argb(150, 0, 0, 0)
             canvas.drawRoundRect(r, dp(4f), dp(4f), fillPaint)
+            val inset = dp(4f)
+            iconRect.set(r.left + inset, r.top + inset, r.right - inset, r.bottom - inset)
+            BlockAtlas.drawBlock(canvas, slotBlocks[i], iconRect)
             val selected = i == selectedSlot
             strokePaint.strokeWidth = if (selected) dp(3f) else dp(1f)
             strokePaint.color = if (selected) Color.WHITE else Color.argb(140, 255, 255, 255)
@@ -279,6 +299,10 @@ class ControlsView(context: Context) : View(context) {
         if (button != null) {
             if (button.kind == Btn.MENU) {
                 onMenuPressed?.invoke()
+                return
+            }
+            if (button.kind == Btn.BAG) {
+                onBagPressed?.invoke()
                 return
             }
             heldPointers[id] = button.kind
