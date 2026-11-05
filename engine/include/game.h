@@ -30,7 +30,8 @@ public:
     void onDestroy();                           // saves and frees the world
     void setInput(const InputState& in);        // any thread
     void setSetting(int key, float value);      // any thread
-    void setHotbarSlot(int slot, int blockId);  // any thread; slot 0..8, blockId must be a placeable block
+    void setHotbarSlot(int slot, int blockId);  // any thread; slot 0..8, blockId must be placeable (isPlaceable); else ignored
+    int getHotbarSlot(int slot) const;          // any thread; block id of the slot, or 0 for an invalid slot
     std::string debugInfo() const;              // one line: fps, position, sections; any thread
 
 private:
