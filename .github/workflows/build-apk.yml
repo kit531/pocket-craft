@@ -127,8 +127,8 @@ jobs:
           VC="${PARSED##* }"
           echo "Package: $PKG"
           echo "versionCode: $VC"
-          if [ "$PKG" != "com.movtery.zalithlauncher" ]; then
-            echo "::error::Package is '$PKG', expected com.movtery.zalithlauncher"
+          if [ "$PKG" != "com.movtery.zalithlauncher.debug" ]; then
+            echo "::error::Package is '$PKG', expected com.movtery.zalithlauncher.debug"
             exit 1
           fi
           if [ "$VC" != "$((1000000 + GITHUB_RUN_NUMBER))" ]; then

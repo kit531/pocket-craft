@@ -4,7 +4,7 @@ plugins {
 }
 
 // CI sets PC_VERSION_CODE to github.run_number. The package is the existing "Pocket Client" launcher's
-// (com.movtery.zalithlauncher) so this APK installs as an update over it, which needs a higher versionCode:
+// (com.movtery.zalithlauncher.debug) so this APK installs as an update over it, which needs a higher versionCode:
 // the launcher's own codes are 300000 + its run number, so ours is offset by 1000000.
 val pcVersionCode: Int = System.getenv("PC_VERSION_CODE")?.trim()?.toIntOrNull() ?: 1
 
@@ -26,7 +26,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.movtery.zalithlauncher"
+        applicationId = "com.movtery.zalithlauncher.debug"
         minSdk = 26
         targetSdk = 35
         versionCode = 1000000 + pcVersionCode
