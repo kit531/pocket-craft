@@ -8,6 +8,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -17,9 +18,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Pause menu overlay: Resume, render distance, look sensitivity, FOV and a live debug line.
+ * Pause menu overlay: Resume, render distance, look sensitivity, FOV, battery saver and a live debug line.
  * Values are saved and pushed to the engine by [GameSettings] as soon as they change.
- * There is no battery-saver (30 FPS) option because the engine has no setting for it yet.
  */
 class PauseMenuView(
     context: Context,
@@ -118,6 +118,14 @@ class PauseMenuView(
         }
         addRow(fovLabel, 20)
         addRow(fovSeek, 4)
+
+        val saver = CheckBox(context).apply {
+            text = "Battery saver (30 FPS)"
+            setTextColor(Color.WHITE)
+            isChecked = settings.batterySaver
+            setOnCheckedChangeListener { _, checked -> settings.batterySaver = checked }
+        }
+        addRow(saver, 20)
 
         debugText.setTextColor(Color.LTGRAY)
         debugText.textSize = 11f

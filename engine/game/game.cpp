@@ -41,6 +41,7 @@ struct Game::Impl {
     // settings
     std::atomic<int> renderDistance{8};
     std::atomic<float> sensitivity{0.004f}, fovDeg{70.0f};
+    std::atomic<int> frameCap{60};
 
     // game-thread state (also touched by lifecycle methods only while the thread is stopped)
     Player player;
@@ -56,7 +57,27 @@ struct Game::Impl {
     void tick();
     void doActions();
     void flushMeshes();
+    void loadPlayer();
+    void savePlayer();
 };
+
+// Player state lives in the world.dat blob as "P x y z yaw pitch" text.
+void Game::Impl::loadPlayer() {
+    float x, y, z, yaw, pitch;
+    if (std::sscanf(world->getExtra().c_str(), "P %f %f %f %f %f", &x, &y, &z, &yaw, &pitch) == 5 && y > -10 && y < CHUNK_H + 64) {
+        player.pos = {x, y, z};
+        player.yaw = yaw;
+        player.pitch = pitch;
+        spawned = true;  // skip the spawn search; physics waits until the column is loaded
+    }
+}
+
+void Game::Impl::savePlayer() {
+    if (!spawned) return;
+    char buf[128];
+    std::snprintf(buf, sizeof buf, "P %.3f %.3f %.3f %.4f %.4f", player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch);
+    world->setExtra(buf);
+}
 
 void Game::Impl::reconcile() {
     bool want = created && window && resumed && width > 0 && height > 0;
@@ -113,8 +134,8 @@ void Game::Impl::run() {
             std::lock_guard<std::mutex> l(dbgMutex);
             dbg = buf;
         }
-        // Cap at 60 FPS even on 120 Hz panels (battery); no-op when vsync already paces us.
-        std::this_thread::sleep_until(now + std::chrono::microseconds(16667));
+        // Cap at 60 (or 30 in battery saver) FPS even on 120 Hz panels; no-op when vsync already paces us.
+        std::this_thread::sleep_until(now + std::chrono::microseconds(1000000 / frameCap.load()));
     }
     renderer->shutdown();
     renderer.reset();
@@ -223,6 +244,7 @@ void Game::onCreate(const std::string& filesDir, const std::string& worldName, u
     if (impl_->created) return;
     impl_->world.reset(new World(seed, filesDir + "/worlds/" + worldName));
     impl_->world->setRenderDistance(impl_->renderDistance);
+    impl_->loadPlayer();
     impl_->created = true;
 }
 
@@ -249,7 +271,10 @@ void Game::onPause() {
     std::lock_guard<std::mutex> l(impl_->lifeMutex);
     impl_->resumed = false;
     impl_->reconcile();
-    if (impl_->world) impl_->world->saveAll();
+    if (impl_->world) {
+        impl_->savePlayer();
+        impl_->world->saveAll();
+    }
 }
 
 void Game::onResume() {
@@ -263,6 +288,7 @@ void Game::onDestroy() {
     impl_->created = false;
     impl_->reconcile();
     if (impl_->world) {
+        impl_->savePlayer();
         impl_->world->saveAll();
         impl_->world.reset();
     }
@@ -290,6 +316,7 @@ void Game::setSetting(int key, float value) {
         }
         case SETTING_LOOK_SENSITIVITY: impl_->sensitivity = value; break;
         case SETTING_FOV: impl_->fovDeg = clampf(value, 50, 110); break;
+        case SETTING_FRAME_CAP: impl_->frameCap = value < 45 ? 30 : 60; break;
         default: break;
     }
 }

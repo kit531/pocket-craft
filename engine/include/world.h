@@ -40,6 +40,9 @@ public:
 
     void saveAll();  // writes modified columns, blocking; call on pause/exit
     uint32_t seed() const;
+    // Opaque blob stored in world.dat (written by saveAll). Game thread only; used for player position.
+    const std::string& getExtra() const;
+    void setExtra(std::string blob);
 
 private:
     struct Impl;

@@ -15,4 +15,5 @@ captures/
 *.aab
 *.jks
 *.keystore
+!android/app/pocketcraft-debug.keystore
 *.spv

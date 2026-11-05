@@ -271,6 +271,8 @@ World::World(uint32_t seed, std::string saveDir) : impl_(new Impl) {
 World::~World() = default;
 
 uint32_t World::seed() const { return impl_->seed; }
+const std::string& World::getExtra() const { return impl_->extra; }
+void World::setExtra(std::string blob) { impl_->extra = std::move(blob); }
 
 void World::setRenderDistance(int chunks) { impl_->radius.store(std::max(2, std::min(kMaxRadius, chunks))); }
 

@@ -762,8 +762,9 @@ VkPipeline Renderer::makeWorldPipeline(int mode) {
     vp.viewportCount = 1; vp.scissorCount = 1;
     VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rs.polygonMode = VK_POLYGON_MODE_FILL; rs.lineWidth = 1.0f;
-    rs.cullMode = VK_CULL_MODE_NONE;  // winding of the mesher is not part of the contract; see status.md
-    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    // Mesher quads are clockwise seen from outside (Y up); the Y-flipped projection keeps the on-screen winding.
+    rs.cullMode = VK_CULL_MODE_BACK_BIT;
+    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};

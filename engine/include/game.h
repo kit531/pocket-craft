@@ -13,6 +13,7 @@ enum Setting : int {
     SETTING_RENDER_DISTANCE = 0,  // chunks radius, 2..16, default 8
     SETTING_LOOK_SENSITIVITY = 1, // radians per touch pixel, default 0.004
     SETTING_FOV = 2,              // vertical degrees, default 70
+    SETTING_FRAME_CAP = 3,        // 30 (battery saver) or 60 (default)
 };
 
 class Game {
