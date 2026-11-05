@@ -50,7 +50,23 @@ jobs:
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           (yes || true) | "$SDKMANAGER" --licenses > /dev/null
-          "$SDKMANAGER" --install "ndk;27.2.12479018" "cmake;3.22.1"
+          # Install one package at a time and retry: the NDK zip download is
+          # sometimes cut off ("Error on ZipFile unknown archive").
+          install() {
+            local pkg="$1" dir="$2"
+            for attempt in 1 2 3; do
+              if [ -f "$ANDROID_HOME/$dir/source.properties" ]; then return 0; fi
+              rm -rf "$ANDROID_HOME/$dir"
+              "$SDKMANAGER" --install "$pkg" || true
+              if [ -f "$ANDROID_HOME/$dir/source.properties" ]; then return 0; fi
+              echo "Install of $pkg failed (attempt $attempt), retrying"
+              sleep $((attempt * 10))
+            done
+            echo "::error::Could not install $pkg"
+            return 1
+          }
+          install "cmake;3.22.1" "cmake/3.22.1"
+          install "ndk;27.2.12479018" "ndk/27.2.12479018"
 
       - name: Build release APK
         working-directory: android
