@@ -55,12 +55,13 @@ Known gaps / notes:
 - Not compiled: Kotlin has not been compiled. Bot 5 should run the Android build first.
 
 ## Bot 5 - build/test
-**APK in CI** (`.github/workflows/build-apk.yml`): every push runs `host-tests` (engine + tests on the host with ctest), then `apk` (`./gradlew assembleRelease`, `PC_VERSION_CODE` = run number). The APK is the workflow artifact `pocket-craft-apk`, file `pocket-craft-0.1.<run_number>.apk`. Pushes to `main` also publish GitHub Release `build-<run_number>` (marked latest) with the APK attached.
+**APK in CI** (`.github/workflows/build-apk.yml`): every push runs `host-tests` (engine + tests on the host with ctest), then `apk` (fetch shared keystore, `./gradlew assembleRelease`, `PC_VERSION_CODE` = run number, verify package/versionCode/signature). The APK is the workflow artifact `pocket-craft-apk`, file `pocket-craft-0.1.<run_number>.apk`. Pushes to `main` also publish GitHub Release `build-<run_number>` (marked latest) with the APK attached.
 
 **Build locally**
 - Tests: `cmake -S engine -B /tmp/pc-host -G Ninja && cmake --build /tmp/pc-host && ctest --test-dir /tmp/pc-host/tests --output-on-failure`
-- APK: JDK 17, Android SDK under `ANDROID_HOME` with NDK 27.2.12479018 and CMake 3.22.1, then `cd android && ./gradlew assembleRelease`. Output: `android/app/build/outputs/apk/release/app-release.apk`. Set `PC_VERSION_CODE=<n>` (default 1); each new build needs a higher code to install over an old one.
-- Signing: one fixed test key committed at `android/app/pocketcraft-debug.keystore` (alias and passwords `pocketcraft`), used by debug and release, so every APK installs as an update over the previous one. Not a store upload key.
+- APK: JDK 17, Android SDK under `ANDROID_HOME` with NDK 27.2.12479018 and CMake 3.22.1, then `cd android && ./gradlew assembleRelease`. Output: `android/app/build/outputs/apk/release/app-release.apk`. Set `PC_VERSION_CODE=<n>` (default 1; versionCode = 1000000 + n); each new build needs a higher code to install over an old one. Before the build, copy the shared keystore to `android/app/zalith-debug.keystore` (see Signing); the build fails without it.
+- Signing: Pocket Craft uses the package `com.movtery.zalithlauncher` and the public debug key of ZalithLauncher (commit `ed8a5c8`, alias `androiddebugkey`, passwords `android`), so it installs as an update over the existing "Pocket Client" app. CI fetches that keystore from the sister repo into `android/app/zalith-debug.keystore` (git-ignored, never committed). Local APK builds need that file copied there first. `versionCode` = 1000000 + `PC_VERSION_CODE`, so it stays above the launcher's own 300000 + run number. CI verifies the APK's package, versionCode and signing-certificate SHA-256 against the keystore before upload.
+- Side effect for the owner: the launcher's own CI versions (300000+) are now lower than Pocket Craft's, so installing a Pocket Client build over Pocket Craft is a downgrade and Android refuses it.
 - Gradle wrapper: 8.11.1.
 
 **Tests** (`tests/`, own micro framework in `tests/test.h`, no downloads)
