@@ -8,7 +8,7 @@
 #include <thread>
 
 #include "blocks.h"
-#include "log.h"
+#include "pc_log.h"
 #include "player.h"
 #include "raycast.h"
 #include "renderer.h"

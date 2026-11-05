@@ -1,6 +1,6 @@
 // Player physics: AABB 0.6 x 1.8, gravity, jump, swimming, flying. Internal to engine/game.
 #pragma once
-#include "math.h"
+#include "pc_math.h"
 
 namespace pc {
 

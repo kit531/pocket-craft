@@ -1,6 +1,6 @@
 #include <cmath>
 
-#include "math.h"
+#include "pc_math.h"
 #include "test.h"
 
 using namespace pc;

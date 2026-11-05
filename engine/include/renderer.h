@@ -3,7 +3,7 @@
 #include <memory>
 
 #include "chunk.h"
-#include "math.h"
+#include "pc_math.h"
 
 namespace pc {
 

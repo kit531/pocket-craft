@@ -20,7 +20,7 @@ Original block game for Android phones. C++17 engine + thin Kotlin layer, Vulkan
 Rules: only touch your own folders. Need an interface change (anything in `engine/include`)? Write a request in `docs/status.md` under your section; the architect applies it. Sources are globbed by CMake (`core game world render platform`), so adding a .cpp needs no CMake edit. Host build (`pocketcraft_core`, static, core+game+world) must stay free of Android/Vulkan headers; `core/log.cpp` is the only place allowed `#ifdef __ANDROID__`. Tests that link `pocketcraft_core` must supply their own `createVulkanRenderer()` (fake) if they instantiate `Game`.
 
 ## Coordinate system
-Y up, right-handed. Block coords are ints; block (x,y,z) occupies [x,x+1) etc. Valid y: 0..127. Chunk key = (cx, cz) with cx = floorDiv(x,16) (use `floorDiv/floorMod` from math.h, never `/ %` on negatives). Section = (cx, cz, sy), sy = y/16. Yaw 0 looks toward -Z, increasing yaw turns right; forward = (sin y cos p, sin p, -cos y cos p). Matrices are column-major; `proj` is Vulkan clip space (Y down, depth 0..1), passed to the renderer as is. Face order: +X, -X, +Y, -Y, +Z, -Z.
+Y up, right-handed. Block coords are ints; block (x,y,z) occupies [x,x+1) etc. Valid y: 0..127. Chunk key = (cx, cz) with cx = floorDiv(x,16) (use `floorDiv/floorMod` from pc_math.h, never `/ %` on negatives). Section = (cx, cz, sy), sy = y/16. Yaw 0 looks toward -Z, increasing yaw turns right; forward = (sin y cos p, sin p, -cos y cos p). Matrices are column-major; `proj` is Vulkan clip space (Y down, depth 0..1), passed to the renderer as is. Face order: +X, -X, +Y, -Y, +Z, -Z.
 
 ## Threading model
 - UI thread (Kotlin): lifecycle, touch -> `nativeSetInput`. Brief locks only.
@@ -32,7 +32,7 @@ Y up, right-handed. Block coords are ints; block (x,y,z) occupies [x,x+1) etc. V
 touch -> Kotlin `NativeBridge.nativeSetInput` -> `Game::setInput` (latched edges, accumulated look) -> tick: `Player::update` (collision via `World::getBlock`), `World::update(playerPos)` -> `setBlock` on break/place -> World re-meshes dirty sections on workers -> `MeshUpdate` queue -> `Game` -> `IRenderer::uploadMesh/removeMesh` -> `IRenderer::render(FrameParams)`.
 
 ## Interfaces (engine/include)
-- `math.h`: `Vec2/Vec3/Vec3i/Mat4`, `perspective`, `lookAt`, `multiply`, `translate`, `transform`, `floorDiv/floorMod`.
+- `pc_math.h`: `Vec2/Vec3/Vec3i/Mat4`, `perspective`, `lookAt`, `multiply`, `translate`, `transform`, `floorDiv/floorMod`.
 - `blocks.h`: `BlockId`, `Tile` (atlas indices, 16x16 grid in a 256x256 atlas, index = row*16+col), `BlockInfo` {solid, transparent, liquid, tiles top/bottom/side}, `blockInfo(id)`, `tileForFace`, `kHotbarBlocks`. Ids are stored on disk: append only.
 - `chunk.h`: constants (`CHUNK_W=16, CHUNK_H=128, SECTION_H=16`), `ChunkKey`, `SectionKey` (+ std::hash), `MeshVertex`, `MeshLayer`, `SectionMesh`, `MeshUpdate`.
 - `world.h` `World(seed, saveDir)`: `update(playerPos)` cheap, never blocks on workers; `getBlock` (air above, bedrock below, air if unloaded); `setBlock` (false if unloaded; marks column dirty, remeshes section + border neighbours); `isLoaded(cx,cz)`; `topSolidY`; `pollMeshUpdates(out)` thread-safe; `remeshAll`; `saveAll` blocking; `setRenderDistance` any thread. Game thread is the only caller of the rest.
@@ -40,7 +40,7 @@ touch -> Kotlin `NativeBridge.nativeSetInput` -> `Game::setInput` (latched edges
 - `input.h` `InputState`: moveX/moveZ (-1..1), lookDX/lookDY (pixels since last snapshot, accumulated natively), jump, sneak, breakPressed, placePressed, flyToggle (levels; game acts on false->true edge, so Kotlin must send true then a later false), hotbarSlot 0..8.
 - `game.h` `Game`: `onCreate(filesDir, worldName, seed)`, `onSurfaceCreated(window)`, `onSurfaceChanged(w,h)`, `onSurfaceDestroyed`, `onPause`, `onResume`, `onDestroy`, `setInput`, `setSetting(key,value)` (0 render distance 2..16, 1 look sensitivity rad/px default 0.004, 2 FOV deg default 70, 3 frame cap 30|60 default 60), `debugInfo()`.
 - `raycast.h`: `raycast(origin, dir, maxDist, BlockGetter)` DDA over solid blocks, returns block + face normal. Reach 6 blocks.
-- `thread_pool.h`: `ThreadPool(n)`, `ThreadSafeQueue<T>`. `log.h`: `PC_LOGD/I/W/E(fmt, ...)`.
+- `thread_pool.h`: `ThreadPool(n)`, `ThreadSafeQueue<T>`. `pc_log.h`: `PC_LOGD/I/W/E(fmt, ...)`.
 
 ## Vertex format (`MeshVertex`, 12 bytes, `uint16_t indices`, 4 verts + 6 indices per quad)
 | Offset | Type | Field |

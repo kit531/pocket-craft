@@ -21,7 +21,7 @@
 
 #include "atlas.h"
 #include "blocks.h"
-#include "log.h"
+#include "pc_log.h"
 #include "renderer.h"
 
 namespace pc {

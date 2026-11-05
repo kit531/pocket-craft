@@ -1,7 +1,7 @@
 // Player physics against the public World API. Terrain is not assumed: the test arena is built in the air
 // (y 100..102), so it works with the stub world and the real one. Columns are loaded first via waitLoaded.
 #include "blocks.h"
-#include "math.h"
+#include "pc_math.h"
 #include "player.h"
 #include "test.h"
 #include "test_util.h"

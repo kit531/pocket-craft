@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <functional>
 
-#include "math.h"
+#include "pc_math.h"
 
 namespace pc {
 

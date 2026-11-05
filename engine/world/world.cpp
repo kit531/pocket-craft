@@ -16,7 +16,7 @@
 #include <unordered_set>
 
 #include "column.h"
-#include "log.h"
+#include "pc_log.h"
 #include "mesher.h"
 #include "storage.h"
 #include "terrain.h"

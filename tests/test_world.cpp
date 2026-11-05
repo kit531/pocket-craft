@@ -4,7 +4,7 @@
 
 #include "blocks.h"
 #include "chunk.h"
-#include "math.h"
+#include "pc_math.h"
 #include "test.h"
 #include "test_util.h"
 #include "world.h"

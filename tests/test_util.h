@@ -6,7 +6,7 @@
 #include <thread>
 
 #include "chunk.h"
-#include "math.h"
+#include "pc_math.h"
 #include "world.h"
 
 namespace pctest {
