@@ -34,6 +34,12 @@ const uint32_t kWorldVert[] = {
 const uint32_t kWorldFrag[] = {
 #include "world.frag.spv.inc"
 };
+const uint32_t kParticleVert[] = {
+#include "particle.vert.spv.inc"
+};
+const uint32_t kParticleFrag[] = {
+#include "particle.frag.spv.inc"
+};
 const uint32_t kUiVert[] = {
 #include "ui.vert.spv.inc"
 };
@@ -46,6 +52,9 @@ constexpr VkDeviceSize kBlockSize = 16u << 20;      // device-local suballocatio
 constexpr VkDeviceSize kStagingBytes = 4u << 20;    // per frame slot
 constexpr VkDeviceSize kUploadBudget = 2u << 20;    // bytes of mesh data uploaded per frame (at least one section)
 constexpr VkDeviceSize kUiBytes = 2048;             // per slot: crosshair + outline vertices (float3)
+constexpr VkDeviceSize kParticleVertBytes = 24;     // vec3 camera-relative pos, vec2 atlas uv, float sky light
+constexpr VkDeviceSize kParticleBytes = VkDeviceSize(kMaxParticles) * 6 * kParticleVertBytes;  // per slot, persistently mapped
+constexpr VkDeviceSize kStageOff = kUiBytes + kParticleBytes;  // staging starts after UI and particle vertices
 constexpr int kCrosshairVerts = 24;
 constexpr int kOutlineVerts = 24;
 
@@ -107,7 +116,7 @@ private:
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
         VkSemaphore imageAvail = VK_NULL_HANDLE;
-        VkBuffer hostBuf = VK_NULL_HANDLE;   // [0,kUiBytes) UI vertices, then staging
+        VkBuffer hostBuf = VK_NULL_HANDLE;   // [0,kUiBytes) UI vertices, then particle vertices, then staging
         VkDeviceMemory hostMem = VK_NULL_HANDLE;
         uint8_t* mapped = nullptr;
         std::vector<Alloc> retired;          // freed once this slot's fence has been waited on again
@@ -178,7 +187,7 @@ private:
     VkDescriptorPool descPool_ = VK_NULL_HANDLE;
     VkDescriptorSet descSet_ = VK_NULL_HANDLE;
     VkPipelineLayout worldLayout_ = VK_NULL_HANDLE, uiLayout_ = VK_NULL_HANDLE;
-    VkPipeline worldOpaque_ = VK_NULL_HANDLE, worldTrans_ = VK_NULL_HANDLE, uiLines_ = VK_NULL_HANDLE, uiTris_ = VK_NULL_HANDLE;
+    VkPipeline worldOpaque_ = VK_NULL_HANDLE, worldTrans_ = VK_NULL_HANDLE, particles_ = VK_NULL_HANDLE, uiLines_ = VK_NULL_HANDLE, uiTris_ = VK_NULL_HANDLE;
     VkImage atlasImage_ = VK_NULL_HANDLE;
     VkDeviceMemory atlasMem_ = VK_NULL_HANDLE;
     VkImageView atlasView_ = VK_NULL_HANDLE;
@@ -337,7 +346,7 @@ void Renderer::removeMesh(const SectionKey& key) {
 void Renderer::processUploads(VkCommandBuffer cmd, Slot& slot) {
     VkDeviceSize used = 0;
     bool any = false;
-    uint8_t* staging = slot.mapped + kUiBytes;
+    uint8_t* staging = slot.mapped + kStageOff;
     while (!pending_.empty()) {
         Pending& p = pending_.front();
         if (any && (used + p.bytes > kStagingBytes || used >= kUploadBudget)) break;
@@ -355,7 +364,7 @@ void Renderer::processUploads(VkCommandBuffer cmd, Slot& slot) {
             if (!allocate(total, a)) { PC_LOGE("GPU mesh allocation failed (%llu bytes)", (unsigned long long)total); ok = false; break; }
             std::memcpy(staging + localUsed, ml.vertices.data(), size_t(vb));
             std::memcpy(staging + localUsed + vb, ml.indices.data(), size_t(ib));
-            VkBufferCopy c{kUiBytes + localUsed, a.offset, total};
+            VkBufferCopy c{kStageOff + localUsed, a.offset, total};
             vkCmdCopyBuffer(cmd, slot.hostBuf, blocks_[a.block]->buf, 1, &c);
             ns.layer[li].a = a;
             ns.layer[li].vtxBytes = uint32_t(vb);
@@ -484,7 +493,7 @@ bool Renderer::createSlots() {
         VK_OK(vkCreateFence(dev_, &fi, nullptr, &s.fence));
         VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         VK_OK(vkCreateSemaphore(dev_, &si, nullptr, &s.imageAvail));
-        if (!createBuffer(kUiBytes + kStagingBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        if (!createBuffer(kStageOff + kStagingBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, s.hostBuf, s.hostMem))
             return false;
         void* p = nullptr;
@@ -739,7 +748,9 @@ void Renderer::resize(int width, int height) {
 
 // ---- pipelines ---------------------------------------------------------------------------------------------------------------
 VkPipeline Renderer::makeWorldPipeline(int mode) {
-    VkShaderModule vs = makeShader(kWorldVert, sizeof(kWorldVert)), fs = makeShader(kWorldFrag, sizeof(kWorldFrag));
+    const bool particle = mode == 2;
+    VkShaderModule vs = particle ? makeShader(kParticleVert, sizeof(kParticleVert)) : makeShader(kWorldVert, sizeof(kWorldVert));
+    VkShaderModule fs = particle ? makeShader(kParticleFrag, sizeof(kParticleFrag)) : makeShader(kWorldFrag, sizeof(kWorldFrag));
     if (!vs || !fs) return VK_NULL_HANDLE;
     int32_t specData = mode;
     VkSpecializationMapEntry se{0, 0, sizeof(int32_t)};
@@ -747,15 +758,21 @@ VkPipeline Renderer::makeWorldPipeline(int mode) {
     VkPipelineShaderStageCreateInfo st[2]{};
     st[0].sType = st[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     st[0].stage = VK_SHADER_STAGE_VERTEX_BIT; st[0].module = vs; st[0].pName = "main";
-    st[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT; st[1].module = fs; st[1].pName = "main"; st[1].pSpecializationInfo = &spec;
-    VkVertexInputBindingDescription bind{0, sizeof(MeshVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription attr[2] = {
+    st[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT; st[1].module = fs; st[1].pName = "main"; st[1].pSpecializationInfo = particle ? nullptr : &spec;
+    VkVertexInputBindingDescription bind{0, particle ? uint32_t(kParticleVertBytes) : uint32_t(sizeof(MeshVertex)), VK_VERTEX_INPUT_RATE_VERTEX};
+    VkVertexInputAttributeDescription attr[3] = {
         {0, 0, VK_FORMAT_R16G16B16A16_UINT, 0},  // x y z tileFace
         {1, 0, VK_FORMAT_R8G8_UINT, 8},          // light ao   (flags @10 reserved, unused)
+        {2, 0, VK_FORMAT_UNDEFINED, 0},
     };
+    if (particle) {
+        attr[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};  // camera-relative position
+        attr[1] = {1, 0, VK_FORMAT_R32G32_SFLOAT, 12};    // atlas uv
+        attr[2] = {2, 0, VK_FORMAT_R32_SFLOAT, 20};       // sky light 0..1
+    }
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = 1; vi.pVertexBindingDescriptions = &bind;
-    vi.vertexAttributeDescriptionCount = 2; vi.pVertexAttributeDescriptions = attr;
+    vi.vertexAttributeDescriptionCount = particle ? 3 : 2; vi.pVertexAttributeDescriptions = attr;
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -763,12 +780,12 @@ VkPipeline Renderer::makeWorldPipeline(int mode) {
     VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rs.polygonMode = VK_POLYGON_MODE_FILL; rs.lineWidth = 1.0f;
     // Mesher quads are clockwise seen from outside (Y up); the Y-flipped projection keeps the on-screen winding.
-    rs.cullMode = VK_CULL_MODE_BACK_BIT;
+    rs.cullMode = particle ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
     rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    ds.depthTestEnable = VK_TRUE; ds.depthWriteEnable = mode == 0 ? VK_TRUE : VK_FALSE; ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    ds.depthTestEnable = VK_TRUE; ds.depthWriteEnable = mode != 1 ? VK_TRUE : VK_FALSE; ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     VkPipelineColorBlendAttachmentState cb{};
     cb.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     if (mode == 1) {
@@ -853,7 +870,7 @@ bool Renderer::createPipelines() {
     w.dstSet = descSet_; w.descriptorCount = 1; w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w.pImageInfo = &di;
     vkUpdateDescriptorSets(dev_, 1, &w, 0, nullptr);
 
-    VkPushConstantRange wr{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 112};
+    VkPushConstantRange wr{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 128};
     VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     pl.setLayoutCount = 1; pl.pSetLayouts = &setLayout_; pl.pushConstantRangeCount = 1; pl.pPushConstantRanges = &wr;
     VK_OK(vkCreatePipelineLayout(dev_, &pl, nullptr, &worldLayout_));
@@ -864,9 +881,10 @@ bool Renderer::createPipelines() {
 
     worldOpaque_ = makeWorldPipeline(0);
     worldTrans_ = makeWorldPipeline(1);
+    particles_ = makeWorldPipeline(2);
     uiLines_ = makeUiPipeline(true);
     uiTris_ = makeUiPipeline(false);
-    if (!worldOpaque_ || !worldTrans_ || !uiLines_ || !uiTris_) { PC_LOGE("pipeline creation failed"); return false; }
+    if (!worldOpaque_ || !worldTrans_ || !particles_ || !uiLines_ || !uiTris_) { PC_LOGE("pipeline creation failed"); return false; }
     return true;
 }
 
@@ -978,6 +996,10 @@ void Renderer::render(const FrameParams& f) {
     fpc.fogColor[0] = f.sky[0]; fpc.fogColor[1] = f.sky[1]; fpc.fogColor[2] = f.sky[2]; fpc.fogColor[3] = 1.0f;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldLayout_, 0, 1, &descSet_, 0, nullptr);
     vkCmdPushConstants(cmd, worldLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(fpc), &fpc);
+    {   // camera position modulo 256: animation phase only (all phase terms have periods dividing 256)
+        float cm[4] = {std::fmod(cam.x, 256.0f), std::fmod(cam.y, 256.0f), std::fmod(cam.z, 256.0f), 0.0f};
+        vkCmdPushConstants(cmd, worldLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 112, 16, cm);
+    }
 
     auto drawLayer = [&](const GpuSection& s, int li) {
         const GpuLayer& l = s.layer[li];
@@ -993,6 +1015,39 @@ void Renderer::render(const FrameParams& f) {
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, worldOpaque_);
     for (const Vis& v : visible_) drawLayer(*v.s, 0);
+
+    // Break particles: camera-facing quads, one quarter of the block tile each, built into this slot's mapped buffer.
+    if (f.particles && f.particleCount > 0) {
+        const uint32_t n = std::min(f.particleCount, kMaxParticles);
+        float* pv = reinterpret_cast<float*>(slot.mapped + kUiBytes);
+        const float rx = f.view.m[0], ry = f.view.m[4], rz = f.view.m[8];  // camera right (row 0 of the view rotation)
+        const float ux = f.view.m[1], uy = f.view.m[5], uz = f.view.m[9];  // camera up (row 1)
+        const float inv = 1.0f / float(kAtlasSize), tpx = float(kAtlasTilePx);
+        const float inset = 0.25f;  // texel inset: no bleeding into neighbouring tiles
+        for (uint32_t i = 0; i < n; ++i) {
+            const ParticleInstance& pi = f.particles[i];
+            const float h = pi.size * 0.5f;
+            const float cx = pi.pos.x - cam.x, cy = pi.pos.y - cam.y, cz = pi.pos.z - cam.z;
+            const float u0 = (float(pi.tile & 15u) * tpx + float(pi.corner & 1u) * 8.0f + inset) * inv;
+            const float v0 = (float(pi.tile >> 4) * tpx + float((pi.corner >> 1) & 1u) * 8.0f + inset) * inv;
+            const float u1 = u0 + (8.0f - 2 * inset) * inv, v1 = v0 + (8.0f - 2 * inset) * inv;
+            const float light = float(pi.light > 15 ? 15 : pi.light) * (1.0f / 15.0f);
+            // corners: (-r,+u) (+r,+u) (+r,-u) (-r,-u); screen up is texture v decreasing
+            const float sx[4] = {-1, 1, 1, -1}, sy[4] = {1, 1, -1, -1};
+            const float tu[4] = {u0, u1, u1, u0}, tv[4] = {v0, v0, v1, v1};
+            const int order[6] = {0, 1, 2, 0, 2, 3};
+            for (int k : order) {
+                *pv++ = cx + (sx[k] * rx + sy[k] * ux) * h;
+                *pv++ = cy + (sx[k] * ry + sy[k] * uy) * h;
+                *pv++ = cz + (sx[k] * rz + sy[k] * uz) * h;
+                *pv++ = tu[k]; *pv++ = tv[k]; *pv++ = light;
+            }
+        }
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, particles_);
+        VkDeviceSize off = kUiBytes;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &slot.hostBuf, &off);
+        vkCmdDraw(cmd, n * 6, 1, 0, 0);
+    }
 
     // UI vertices for this slot
     float outline[kOutlineVerts * 3];
@@ -1067,8 +1122,8 @@ void Renderer::shutdown() {
         for (auto& b : blocks_) if (b) { vkDestroyBuffer(dev_, b->buf, nullptr); vkFreeMemory(dev_, b->mem, nullptr); }
         blocks_.clear();
         destroySwapchain(false);
-        for (VkPipeline p : {worldOpaque_, worldTrans_, uiLines_, uiTris_}) if (p) vkDestroyPipeline(dev_, p, nullptr);
-        worldOpaque_ = worldTrans_ = uiLines_ = uiTris_ = VK_NULL_HANDLE;
+        for (VkPipeline p : {worldOpaque_, worldTrans_, particles_, uiLines_, uiTris_}) if (p) vkDestroyPipeline(dev_, p, nullptr);
+        worldOpaque_ = worldTrans_ = particles_ = uiLines_ = uiTris_ = VK_NULL_HANDLE;
         if (worldLayout_) vkDestroyPipelineLayout(dev_, worldLayout_, nullptr);
         if (uiLayout_) vkDestroyPipelineLayout(dev_, uiLayout_, nullptr);
         if (descPool_) vkDestroyDescriptorPool(dev_, descPool_, nullptr);

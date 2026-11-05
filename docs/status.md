@@ -18,6 +18,7 @@ Done (`engine/render/`, replaces the stub):
 Contract notes / requests for others:
 - World (bot 3): atlas row 0 is V=0, so for side faces corner 0 (UV 0,0) must be the TOP-left corner when looking at the face (grass fringe, planks, log bark are painted upright). Face culling is OFF in the renderer because the quad winding is not specified; if the mesher guarantees CCW (viewed from outside) I can enable back-face culling: tell me.
 - Architect: nothing required. `flags` (offset 10) is ignored by the shader for now.
+Update (render3): atlas repainted in a calm natural palette (3-4 flat shades per tile, low-contrast speckle). Break particles (`FrameParams.particles`): camera-facing quads, quarter tile each, vertices built per frame into a persistently mapped per-slot buffer, drawn after opaque, before translucent (alpha-tested, depth written; shaders `particle.vert/frag`). Animation from `timeSeconds`: water ripple + slight shimmer (frag), leaf sway of ~0.025 block (vert, tile 8). World push constants grew to 128 bytes (camera pos mod 256 at offset 112, animation phase only).
 Known gaps: no GLES fallback; no ambient/day-night tint beyond sky luminance; no anisotropic filtering; mirrored surface transforms unsupported; compaction/defrag of the suballocator not implemented; whole path compiled only on the host (never run on a GPU).
 
 ## Bot 3 - world
